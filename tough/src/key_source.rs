@@ -41,8 +41,7 @@ impl KeySource for LocalKeySource {
     async fn as_sign(
         &self,
     ) -> Result<Box<dyn Sign>, Box<dyn std::error::Error + Send + Sync + 'static>> {
-        let data = tokio::fs::read(&self.path)
-            .await
+        let data = std::fs::read(&self.path)
             .context(error::FileReadSnafu { path: &self.path })?;
         Ok(Box::new(parse_keypair(&data)?))
     }
@@ -52,8 +51,7 @@ impl KeySource for LocalKeySource {
         value: &str,
         _key_id_hex: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-        Ok(tokio::fs::write(&self.path, value.as_bytes())
-            .await
+        Ok(std::fs::write(&self.path, value.as_bytes())
             .context(error::FileWriteSnafu { path: &self.path })?)
     }
 }

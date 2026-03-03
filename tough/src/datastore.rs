@@ -10,7 +10,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tempfile::TempDir;
-use tokio::sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// `Datastore` persists TUF metadata files.
 #[derive(Debug, Clone)]
@@ -32,12 +32,12 @@ impl Datastore {
         })
     }
 
-    async fn read(&self) -> RwLockReadGuard<'_, DatastorePath> {
-        self.path_lock.read().await
+    fn read_lock(&self) -> RwLockReadGuard<'_, DatastorePath> {
+        self.path_lock.read().unwrap_or_else(|e| e.into_inner())
     }
 
-    async fn write(&self) -> RwLockWriteGuard<'_, DatastorePath> {
-        self.path_lock.write().await
+    fn write_lock(&self) -> RwLockWriteGuard<'_, DatastorePath> {
+        self.path_lock.write().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Get contents of a file in the datastore. This function is thread safe.
@@ -45,9 +45,9 @@ impl Datastore {
     /// TODO: [provide a thread safe interface](https://github.com/awslabs/tough/issues/602)
     ///
     pub(crate) async fn bytes(&self, file: &str) -> Result<Option<Vec<u8>>> {
-        let lock = &self.read().await;
+        let lock = self.read_lock();
         let path = lock.path().join(file);
-        match tokio::fs::read(&path).await {
+        match std::fs::read(&path) {
             Ok(file) => Ok(Some(file)),
             Err(err) => match err.kind() {
                 ErrorKind::NotFound => Ok(None),
@@ -58,23 +58,22 @@ impl Datastore {
 
     /// Writes a JSON metadata file in the datastore. This function is thread safe.
     pub(crate) async fn create<T: Serialize>(&self, file: &str, value: &T) -> Result<()> {
-        let lock = &self.write().await;
+        let lock = self.write_lock();
         let path = lock.path().join(file);
         let bytes = serde_json::to_vec(value).with_context(|_| error::DatastoreSerializeSnafu {
             what: format!("{file} in datastore"),
             path: path.clone(),
         })?;
-        tokio::fs::write(&path, bytes)
-            .await
+        std::fs::write(&path, bytes)
             .context(error::DatastoreCreateSnafu { path: &path })
     }
 
     /// Deletes a file from the datastore. This function is thread safe.
     pub(crate) async fn remove(&self, file: &str) -> Result<()> {
-        let lock = self.write().await;
+        let lock = self.write_lock();
         let path = lock.path().join(file);
         debug!("removing '{}'", path.display());
-        match tokio::fs::remove_file(&path).await {
+        match std::fs::remove_file(&path) {
             Ok(()) => Ok(()),
             Err(err) => match err.kind() {
                 ErrorKind::NotFound => Ok(()),
@@ -87,7 +86,7 @@ impl Datastore {
     /// is protected by a lock guard to ensure thread safety.
     pub(crate) async fn system_time(&self) -> Result<DateTime<Utc>> {
         // Treat this function as a critical section. This lock is not used for anything else.
-        let lock = self.time_lock.lock().await;
+        let lock = self.time_lock.lock().unwrap_or_else(|e| e.into_inner());
 
         let file = "latest_known_time.json";
         // Load the latest known system time, if it exists

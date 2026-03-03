@@ -6,9 +6,9 @@ use crate::{encode_filename, Prefix, Repository, TargetName};
 use bytes::Bytes;
 use futures::Stream;
 use snafu::{ensure, futures::TryStreamExt, OptionExt, ResultExt};
+use std::io::Write;
 use std::path::Path;
 use std::pin::Pin;
-use tokio::io::AsyncWriteExt;
 
 impl Repository {
     /// Cache an entire or partial repository to disk, including all required metadata.
@@ -32,13 +32,11 @@ impl Repository {
         S: AsRef<str>,
     {
         // Create the output directories if the do not exist.
-        tokio::fs::create_dir_all(metadata_outdir.as_ref())
-            .await
+        std::fs::create_dir_all(metadata_outdir.as_ref())
             .context(error::CacheDirectoryCreateSnafu {
                 path: metadata_outdir.as_ref(),
             })?;
-        tokio::fs::create_dir_all(targets_outdir.as_ref())
-            .await
+        std::fs::create_dir_all(targets_outdir.as_ref())
             .context(error::CacheDirectoryCreateSnafu {
                 path: targets_outdir.as_ref(),
             })?;
@@ -75,8 +73,7 @@ impl Repository {
         P: AsRef<Path>,
     {
         // Create the output directory if it does not exist.
-        tokio::fs::create_dir_all(metadata_outdir.as_ref())
-            .await
+        std::fs::create_dir_all(metadata_outdir.as_ref())
             .context(error::CacheDirectoryCreateSnafu {
                 path: metadata_outdir.as_ref(),
             })?;
@@ -121,8 +118,7 @@ impl Repository {
             if let Some(filename) = self.delegated_filename(name) {
                 if let Some(bytes) = self.delegated_metadata_bytes.get(name) {
                     let outpath = metadata_outdir.as_ref().join(&filename);
-                    tokio::fs::write(&outpath, bytes)
-                        .await
+                    std::fs::write(&outpath, bytes)
                         .context(error::CacheFileWriteSnafu { path: outpath })?;
                 }
             }
@@ -206,12 +202,10 @@ impl Repository {
             max_size_specifier,
         )
         .await?;
-        let outdir_canonical =
-            tokio::fs::canonicalize(outdir.as_ref())
-                .await
-                .context(error::AbsolutePathSnafu {
-                    path: outdir.as_ref(),
-                })?;
+        let outdir_canonical = std::fs::canonicalize(outdir.as_ref())
+            .context(error::AbsolutePathSnafu {
+                path: outdir.as_ref(),
+            })?;
         let outpath = outdir_canonical.join(filename);
         ensure!(
             outpath.starts_with(&outdir_canonical),
@@ -223,16 +217,13 @@ impl Repository {
             .into_vec()
             .await
             .context(error::TransportSnafu { url })?;
-        let mut file = tokio::fs::File::create(&outpath)
-            .await
+        let mut file = std::fs::File::create(&outpath)
             .context(error::CacheFileWriteSnafu { path: &outpath })?;
         file.write_all(&root_file_data)
-            .await
             .context(error::CacheFileWriteSnafu {
                 path: outpath.clone(),
             })?;
         file.flush()
-            .await
             .context(error::CacheFileWriteSnafu { path: outpath })
     }
 

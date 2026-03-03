@@ -23,13 +23,12 @@ use serde_plain::derive_fromstr_from_deserialize;
 use snafu::{ensure, OptionExt, ResultExt};
 use std::collections::HashMap;
 use std::future::{ready, Future};
-use tokio::fs::{canonicalize, copy, create_dir_all, remove_file, symlink_metadata};
-use tokio::io::AsyncWriteExt;
+use std::fs::{copy, create_dir_all, remove_file, symlink_metadata};
 
 #[cfg(not(target_os = "windows"))]
-use tokio::fs::symlink;
+use std::os::unix::fs::symlink;
 #[cfg(target_os = "windows")]
-use tokio::fs::symlink_file as symlink;
+use std::os::windows::fs::symlink_file as symlink;
 
 use crate::{FilesystemTransport, TargetName, Transport};
 use std::borrow::Cow;
@@ -164,22 +163,15 @@ where
         P: AsRef<Path>,
     {
         let outdir = outdir.as_ref();
-        tokio::fs::create_dir_all(outdir)
-            .await
+        std::fs::create_dir_all(outdir)
             .context(error::DirCreateSnafu { path: outdir })?;
 
-        let outdir = tokio::fs::canonicalize(outdir)
-            .await
+        let outdir = std::fs::canonicalize(outdir)
             .context(error::AbsolutePathSnafu { path: outdir })?;
         let filename = self.signed.signed.filename(consistent_snapshot);
         let path = outdir.join(filename);
-        let mut file = tokio::fs::File::create(&path)
-            .await
-            .context(error::FileWriteSnafu { path: &path })?;
-        file.write_all(&self.buffer)
-            .await
-            .context(error::FileWriteSnafu { path: &path })?;
-        file.flush().await.context(error::FileWriteSnafu { path })
+        std::fs::write(&path, &self.buffer)
+            .context(error::FileWriteSnafu { path })
     }
 
     /// Append the old signatures for root role
@@ -345,7 +337,6 @@ impl SignedRepository {
         {
             TargetPath::New { path } => {
                 symlink(input_path, &path)
-                    .await
                     .context(error::LinkCreateSnafu { path })?;
             }
             TargetPath::Symlink { path } => match replace_behavior {
@@ -353,10 +344,8 @@ impl SignedRepository {
                 PathExists::Fail => error::PathExistsFailSnafu { path }.fail()?,
                 PathExists::Replace => {
                     remove_file(&path)
-                        .await
                         .context(error::RemoveTargetSnafu { path: &path })?;
                     symlink(input_path, &path)
-                        .await
                         .context(error::LinkCreateSnafu { path })?;
                 }
             },
@@ -396,7 +385,6 @@ impl SignedRepository {
         {
             TargetPath::New { path } => {
                 copy(input_path, &path)
-                    .await
                     .context(error::FileWriteSnafu { path })?;
             }
             TargetPath::File { path } => match replace_behavior {
@@ -404,10 +392,8 @@ impl SignedRepository {
                 PathExists::Fail => error::PathExistsFailSnafu { path }.fail()?,
                 PathExists::Replace => {
                     remove_file(&path)
-                        .await
                         .context(error::RemoveTargetSnafu { path: &path })?;
                     copy(input_path, &path)
-                        .await
                         .context(error::FileWriteSnafu { path })?;
                 }
             },
@@ -539,7 +525,6 @@ impl SignedDelegatedTargets {
         {
             TargetPath::New { path } => {
                 symlink(input_path, &path)
-                    .await
                     .context(error::LinkCreateSnafu { path })?;
             }
             TargetPath::Symlink { path } => match replace_behavior {
@@ -547,10 +532,8 @@ impl SignedDelegatedTargets {
                 PathExists::Fail => error::PathExistsFailSnafu { path }.fail()?,
                 PathExists::Replace => {
                     remove_file(&path)
-                        .await
                         .context(error::RemoveTargetSnafu { path: &path })?;
                     symlink(input_path, &path)
-                        .await
                         .context(error::LinkCreateSnafu { path })?;
                 }
             },
@@ -590,7 +573,6 @@ impl SignedDelegatedTargets {
         {
             TargetPath::New { path } => {
                 copy(input_path, &path)
-                    .await
                     .context(error::FileWriteSnafu { path })?;
             }
             TargetPath::File { path } => match replace_behavior {
@@ -598,10 +580,8 @@ impl SignedDelegatedTargets {
                 PathExists::Fail => error::PathExistsFailSnafu { path }.fail()?,
                 PathExists::Replace => {
                     remove_file(&path)
-                        .await
                         .context(error::RemoveTargetSnafu { path: &path })?;
                     copy(input_path, &path)
-                        .await
                         .context(error::FileWriteSnafu { path })?;
                 }
             },
@@ -683,29 +663,27 @@ trait TargetsWalker {
             > + Send,
     {
         create_dir_all(outdir)
-            .await
             .context(error::DirCreateSnafu { path: outdir })?;
 
         // Get the absolute path of the indir and outdir
-        let abs_indir = canonicalize(indir)
-            .await
+        let abs_indir = std::fs::canonicalize(indir)
             .context(error::AbsolutePathSnafu { path: indir })?;
 
         // Walk the absolute path of the indir. Using the absolute path here
         // means that `entry.path()` call will return its absolute path.
-        let (tx, mut rx) = tokio::sync::mpsc::channel(10);
+        let (tx, rx) = std::sync::mpsc::sync_channel(10);
         let root = abs_indir.clone();
-        tokio::task::spawn_blocking(move || {
+        std::thread::spawn(move || {
             let walker = WalkDir::new(&root).follow_links(true);
             for entry in walker {
-                if tx.blocking_send(entry).is_err() {
+                if tx.send(entry).is_err() {
                     // Receiver error'ed out
                     break;
                 }
             }
         });
 
-        while let Some(entry) = rx.recv().await {
+        while let Some(entry) = rx.recv().ok() {
             let entry = entry.context(error::WalkDirSnafu {
                 directory: &abs_indir,
             })?;
@@ -737,8 +715,7 @@ trait TargetsWalker {
         outdir: &Path,
         target_filename: Option<&TargetName>,
     ) -> Result<TargetPath> {
-        let outdir = tokio::fs::canonicalize(outdir)
-            .await
+        let outdir = std::fs::canonicalize(outdir)
             .context(error::AbsolutePathSnafu { path: outdir })?;
 
         // If the caller requested a specific target filename, use that, otherwise use the filename
@@ -810,13 +787,10 @@ trait TargetsWalker {
         );
 
         create_dir_all(&dest_parent)
-            .await
             .context(error::DirCreateSnafu { path: &dest_parent })?;
-        let real_parent = canonicalize(&dest_parent)
-            .await
+        let real_parent = std::fs::canonicalize(&dest_parent)
             .context(error::AbsolutePathSnafu { path: &dest_parent })?;
-        let real_outdir = canonicalize(&outdir)
-            .await
+        let real_outdir = std::fs::canonicalize(&outdir)
             .context(error::AbsolutePathSnafu { path: &outdir })?;
         ensure!(
             real_parent.starts_with(&real_outdir),
@@ -856,7 +830,6 @@ trait TargetsWalker {
         }
 
         let metadata = symlink_metadata(&dest)
-            .await
             .context(error::FileMetadataSnafu { path: &dest })?;
         if metadata.file_type().is_file() {
             Ok(TargetPath::File { path: dest })
