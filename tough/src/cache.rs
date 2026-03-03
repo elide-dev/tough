@@ -7,8 +7,8 @@ use bytes::Bytes;
 use futures::StreamExt;
 use futures_core::stream::BoxStream;
 use snafu::{futures::TryStreamExt, OptionExt, ResultExt};
+use std::io::Write;
 use std::path::Path;
-use tokio::io::AsyncWriteExt;
 
 impl Repository {
     /// Cache an entire or partial repository to disk, including all required metadata.
@@ -32,13 +32,11 @@ impl Repository {
         S: AsRef<str>,
     {
         // Create the output directories if the do not exist.
-        tokio::fs::create_dir_all(metadata_outdir.as_ref())
-            .await
+        std::fs::create_dir_all(metadata_outdir.as_ref())
             .context(error::CacheDirectoryCreateSnafu {
                 path: metadata_outdir.as_ref(),
             })?;
-        tokio::fs::create_dir_all(targets_outdir.as_ref())
-            .await
+        std::fs::create_dir_all(targets_outdir.as_ref())
             .context(error::CacheDirectoryCreateSnafu {
                 path: targets_outdir.as_ref(),
             })?;
@@ -75,8 +73,7 @@ impl Repository {
         P: AsRef<Path>,
     {
         // Create the output directory if it does not exist.
-        tokio::fs::create_dir_all(metadata_outdir.as_ref())
-            .await
+        std::fs::create_dir_all(metadata_outdir.as_ref())
             .context(error::CacheDirectoryCreateSnafu {
                 path: metadata_outdir.as_ref(),
             })?;
@@ -208,7 +205,7 @@ impl Repository {
         )
         .await?;
         let outpath = outdir.as_ref().join(filename);
-        let mut file = tokio::fs::File::create(&outpath).await.with_context(|_| {
+        let mut file = std::fs::File::create(&outpath).with_context(|_| {
             error::CacheFileWriteSnafu {
                 path: outpath.clone(),
             }
@@ -218,12 +215,10 @@ impl Repository {
             .await
             .context(error::TransportSnafu { url })?;
         file.write_all(&root_file_data)
-            .await
             .context(error::CacheFileWriteSnafu {
                 path: outpath.clone(),
             })?;
         file.flush()
-            .await
             .context(error::CacheFileWriteSnafu { path: outpath })
     }
 

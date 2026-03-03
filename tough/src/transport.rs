@@ -9,9 +9,7 @@ use futures_core::Stream;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::{self, ErrorKind};
-use std::path::Path;
 use std::pin::Pin;
-use tokio_util::io::ReaderStream;
 use url::Url;
 
 /// Type alias for the stream returned by transports
@@ -169,17 +167,12 @@ impl Error for TransportError {
 pub struct FilesystemTransport;
 
 impl FilesystemTransport {
-    async fn open(
-        file_path: impl AsRef<Path>,
+    fn open(
+        file_path: impl AsRef<std::path::Path>,
     ) -> Result<impl Stream<Item = Result<Bytes, io::Error>> + Send, io::Error> {
-        // Open the file
-        let f = tokio::fs::File::open(file_path).await?;
-
-        // And convert to stream
-        let reader = tokio::io::BufReader::new(f);
-        let stream = ReaderStream::new(reader);
-
-        Ok(stream)
+        // Read the entire file into memory (TUF metadata/targets are small and bounded)
+        let data = std::fs::read(file_path)?;
+        Ok(futures::stream::once(async move { Ok(Bytes::from(data)) }))
     }
 }
 
@@ -196,8 +189,8 @@ impl Transport for FilesystemTransport {
 
         let file_path = url.safe_url_filepath();
 
-        // Open the file
-        let stream = Self::open(file_path).await;
+        // Read the file
+        let stream = Self::open(file_path);
 
         // And map to `TransportError`
         let map_io_err = move |e: io::Error| -> TransportError {

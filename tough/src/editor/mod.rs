@@ -94,8 +94,7 @@ impl RepositoryEditor {
         // Read and parse the root.json. Without a good root, it doesn't
         // make sense to continue
         let root_path = root_path.as_ref();
-        let root_buf = tokio::fs::read(root_path)
-            .await
+        let root_buf = std::fs::read(root_path)
             .context(error::FileReadSnafu { path: root_path })?;
         let root_buf_len = root_buf.len() as u64;
         let root = serde_json::from_slice::<Signed<Root>>(&root_buf)
