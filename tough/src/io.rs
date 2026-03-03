@@ -6,7 +6,7 @@ use aws_lc_rs::digest::{Context, SHA256};
 use futures::StreamExt;
 use futures_core::Stream;
 use std::{convert::TryInto, path::Path, task::Poll};
-use tokio::fs;
+use std::fs;
 use url::Url;
 
 pub(crate) struct DigestAdapter {
@@ -96,14 +96,14 @@ pub(crate) fn max_size_adapter(
     Box::pin(stream)
 }
 
-/// Async analogue of `std::path::Path::is_file`
+/// Check if path is a file.
 pub async fn is_file(path: impl AsRef<Path>) -> bool {
-    fs::metadata(path).await.is_ok_and(|m| m.is_file())
+    fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
-/// Async analogue of `std::path::Path::is_dir`
+/// Check if path is a directory.
 pub async fn is_dir(path: impl AsRef<Path>) -> bool {
-    fs::metadata(path).await.is_ok_and(|m| m.is_dir())
+    fs::metadata(path).is_ok_and(|m| m.is_dir())
 }
 
 #[cfg(test)]

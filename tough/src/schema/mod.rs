@@ -31,8 +31,7 @@ use std::num::NonZeroU64;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::str::FromStr;
-use tokio::fs::File;
-use tokio::io::AsyncReadExt;
+use std::io::Read;
 
 /// The type of metadata role.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Hash)]
@@ -465,8 +464,7 @@ impl Target {
         }
 
         // Get the sha256 and length of the target
-        let mut file = File::open(path)
-            .await
+        let mut file = std::fs::File::open(path)
             .context(error::FileOpenSnafu { path })?;
         let mut digest = Context::new(&SHA256);
         let mut buf = [0; 8 * 1024];
@@ -474,7 +472,6 @@ impl Target {
         loop {
             match file
                 .read(&mut buf)
-                .await
                 .context(error::FileReadSnafu { path })?
             {
                 0 => break,

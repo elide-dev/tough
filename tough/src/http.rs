@@ -393,7 +393,7 @@ impl RetryStream {
         let backoff = self.retry_state.wait;
 
         let delayed_request = Box::pin(async move {
-            tokio::time::sleep(backoff).await;
+            std::thread::sleep(backoff);
             client.execute(request).await
         });
 
