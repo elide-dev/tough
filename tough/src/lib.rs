@@ -76,8 +76,7 @@ use snafu::{ensure, OptionExt, ResultExt};
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
-use tokio::fs::{canonicalize, create_dir_all};
-use tokio::io::AsyncWriteExt;
+use std::io::Write;
 use url::Url;
 
 /// Represents whether a Repository should fail to load when metadata is expired (`Safe`) or whether
@@ -522,8 +521,7 @@ impl Repository {
     {
         // Ensure the outdir exists then canonicalize the path.
         let outdir = outdir.as_ref();
-        let outdir = canonicalize(outdir)
-            .await
+        let outdir = std::fs::canonicalize(outdir)
             .context(error::SaveTargetOutdirCanonicalizeSnafu { path: outdir })?;
         ensure!(
             is_dir(&outdir).await,
@@ -582,17 +580,14 @@ impl Repository {
             .read_target(name)
             .await?
             .with_context(|| error::SaveTargetNotFoundSnafu { name: name.clone() })?;
-        create_dir_all(filepath_dir)
-            .await
+        std::fs::create_dir_all(filepath_dir)
             .context(error::DirCreateSnafu {
                 path: &filepath_dir,
             })?;
 
-        let real_filepath_dir = canonicalize(filepath_dir)
-            .await
+        let real_filepath_dir = std::fs::canonicalize(filepath_dir)
             .context(error::AbsolutePathSnafu { path: filepath_dir })?;
-        let real_outdir = canonicalize(&outdir)
-            .await
+        let real_outdir = std::fs::canonicalize(&outdir)
             .context(error::AbsolutePathSnafu { path: &outdir })?;
         ensure!(
             real_filepath_dir.starts_with(&real_outdir),
@@ -604,26 +599,17 @@ impl Repository {
         );
 
         // Create a new temporary file.
-        let tmp_path = real_filepath_dir;
-        let tmp = tokio::task::spawn_blocking(move || NamedTempFile::new_in(tmp_path))
-            .await
-            .context(error::JoinSpawnBlockingTaskSnafu)?
+        let mut tmp = NamedTempFile::new_in(&real_filepath_dir)
             .context(error::NamedTempFileCreateSnafu { path: filepath_dir })?;
 
-        // Convert to `tokio::fs::File`.
-        let (f, tmp_path) = tmp.into_parts();
-        let mut f = tokio::fs::File::from_std(f);
-
-        // Write input stream to file.
+        // Write input stream to file using std::io::Write.
         while let Some(bytes) = stream.next().await {
-            f.write_all(bytes?.as_ref())
-                .await
-                .context(error::FileWriteSnafu { path: &tmp_path })?;
+            tmp.write_all(bytes?.as_ref())
+                .context(error::FileWriteSnafu { path: tmp.path() })?;
         }
 
-        // Reconstruct `NamedTempFile` in order to persist it at the target location.
-        let f = NamedTempFile::from_parts(f.into_std().await, tmp_path);
-        f.persist(&resolved_filepath)
+        // Persist at the target location.
+        tmp.persist(&resolved_filepath)
             .context(error::NamedTempFilePersistSnafu {
                 path: resolved_filepath,
             })?;
