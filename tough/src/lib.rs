@@ -47,6 +47,7 @@ mod transport;
 mod urlpath;
 
 use crate::datastore::Datastore;
+pub use crate::datastore::DatastoreStorage;
 use crate::error::Result;
 use crate::fetch::{fetch_max_size, fetch_sha256};
 /// An HTTP transport that includes retries.
@@ -74,9 +75,10 @@ use log::warn;
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use snafu::{ensure, OptionExt, ResultExt};
 use std::collections::{BTreeSet, HashMap};
-use std::path::{Path, PathBuf};
-use tempfile::NamedTempFile;
 use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tempfile::NamedTempFile;
 use url::Url;
 
 /// Represents whether a Repository should fail to load when metadata is expired (`Safe`) or whether
@@ -177,6 +179,7 @@ pub struct RepositoryLoader<'a> {
     transport: Option<Box<dyn Transport + Send + Sync>>,
     limits: Option<Limits>,
     datastore: Option<PathBuf>,
+    datastore_storage: Option<Arc<dyn DatastoreStorage>>,
     expiration_enforcement: Option<ExpirationEnforcement>,
 }
 
@@ -198,6 +201,7 @@ impl<'a> RepositoryLoader<'a> {
             transport: None,
             limits: None,
             datastore: None,
+            datastore_storage: None,
             expiration_enforcement: None,
         }
     }
@@ -231,6 +235,18 @@ impl<'a> RepositoryLoader<'a> {
     #[must_use]
     pub fn datastore<P: Into<PathBuf>>(mut self, datastore: P) -> Self {
         self.datastore = Some(datastore.into());
+        self.datastore_storage = None;
+        self
+    }
+
+    /// Set application-owned persistent storage for rollback-detection metadata.
+    ///
+    /// The storage owns its authority and lifetime. This replaces any path set with
+    /// [`RepositoryLoader::datastore`], preserving repository verification and time checks.
+    #[must_use]
+    pub fn datastore_storage(mut self, storage: Arc<dyn DatastoreStorage>) -> Self {
+        self.datastore_storage = Some(storage);
+        self.datastore = None;
         self
     }
 
@@ -331,7 +347,7 @@ pub struct Repository {
 impl Repository {
     /// Load and verify TUF repository metadata using a [`RepositoryLoader`] for the settings.
     async fn load(loader: RepositoryLoader<'_>) -> Result<Self> {
-        let datastore = Datastore::new(loader.datastore)?;
+        let datastore = Datastore::new(loader.datastore, loader.datastore_storage)?;
         let transport = loader
             .transport
             .unwrap_or_else(|| Box::new(DefaultTransport::new()));
@@ -580,15 +596,14 @@ impl Repository {
             .read_target(name)
             .await?
             .with_context(|| error::SaveTargetNotFoundSnafu { name: name.clone() })?;
-        std::fs::create_dir_all(filepath_dir)
-            .context(error::DirCreateSnafu {
-                path: &filepath_dir,
-            })?;
+        std::fs::create_dir_all(filepath_dir).context(error::DirCreateSnafu {
+            path: &filepath_dir,
+        })?;
 
         let real_filepath_dir = std::fs::canonicalize(filepath_dir)
             .context(error::AbsolutePathSnafu { path: filepath_dir })?;
-        let real_outdir = std::fs::canonicalize(&outdir)
-            .context(error::AbsolutePathSnafu { path: &outdir })?;
+        let real_outdir =
+            std::fs::canonicalize(&outdir).context(error::AbsolutePathSnafu { path: &outdir })?;
         ensure!(
             real_filepath_dir.starts_with(&real_outdir),
             error::SaveTargetUnsafePathSnafu {
