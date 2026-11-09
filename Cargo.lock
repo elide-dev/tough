@@ -3142,7 +3142,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -3379,6 +3379,7 @@ dependencies = [
  "failure-server",
  "futures",
  "futures-core",
+ "futures-util",
  "globset",
  "hex",
  "hex-literal",
@@ -3400,7 +3401,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-test",
- "tokio-util 0.7.18",
  "typed-path",
  "untrusted 0.7.1",
  "url",
@@ -3614,9 +3614,9 @@ dependencies = [
 
 [[package]]
 name = "typed-path"
-version = "0.9.3"
+version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82205ffd44a9697e34fc145491aa47310f9871540bb7909eaa9365e0a9a46607"
+checksum = "54ec2755506471f54baf5e4bb5499d8e510cc1caf271270e778a736bd2d7336c"
 
 [[package]]
 name = "typenum"
